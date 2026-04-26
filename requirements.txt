@@ -1,0 +1,21 @@
+# BEI Confluence Pattern Scanner — Dependencies
+# Install: pip install -r requirements.txt
+
+# ── Data & Analisis ───────────────────────────────────────────────
+pandas>=2.0.0
+numpy>=1.24.0
+ta>=0.11.0                    # Technical Analysis library (RSI, MACD, ATR, ADX, dll)
+
+# ── TradingView Data Feed ─────────────────────────────────────────
+# Pilih SALAH SATU dari dua baris di bawah:
+
+# Opsi A — versi standar (lebih stabil, sudah terbukti di bei_scanner.py kamu)
+git+https://github.com/rongardF/tvdatafeed.git
+
+# Opsi B — versi enhanced (ada get_hist_multi untuk batch fetch)
+# tvdatafeed-enhanced
+
+# ── Utilitas ──────────────────────────────────────────────────────
+python-dateutil>=2.8.0
+pytz>=2023.3
+requests>=2.31.0
