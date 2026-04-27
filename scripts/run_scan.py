@@ -53,9 +53,9 @@ SCAN_CONFIG = {
 
     # Filter sinyal yang dikirim ke Telegram
     "notify_strong":    True,   # kirim STRONG BUY
-    "notify_buy":       True,   # kirim BUY
+    "notify_buy":       False,   # kirim BUY
     "notify_watchlist": False,  # jangan kirim WATCHLIST (terlalu banyak)
-    "notify_combo_t1":  True,   # selalu kirim jika ada Combo Tier 1
+    "notify_combo_t1":  False,   # selalu kirim jika ada Combo Tier 1
 
     # Filter universe (None = semua)
     # Opsi: "A_TRENDING", "B_OVERSOLD", "BOTH", None
