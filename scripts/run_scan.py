@@ -4,24 +4,47 @@ from datetime import datetime
 from tvDatafeed import TvDatafeed, Interval
 import logging
 import os
+import requests
 
-# --- CONFIGURATION ---
-# Gunakan list emiten yang Anda inginkan di sini
-WATCHLIST = ["ASII", "BBCA", "BBRI", "TLKM", "ADRO", "ADHI", "PTPP", "AMMN", "BBNI", "BMRI"]
-MIN_VALUE_PER_DAY = 2_000_000_000  # Minimal transaksi 2 Miliar/hari
-MAX_STALE_DAYS = 2                 # Maksimal data basi 2 hari
+# --- CONFIGURATION FROM SECRETS ---
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+
+# List emiten (Bisa ditambah sesuai kebutuhan)
+WATCHLIST = ["ASII", "BBCA", "BBRI", "TLKM", "ADRO", "ADHI", "PTPP", "AMMN", "BBNI", "BMRI", "UNTR", "PTBA", "MDKA", "GOTO"]
+MIN_VALUE_PER_DAY = 2_000_000_000 
+MAX_STALE_DAYS = 2
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("BEI_Scanner")
 
 class BEIScanner:
     def __init__(self):
-        # Nologin method
         self.tv = TvDatafeed()
+
+    def send_telegram(self, message):
+        """Fungsi pengirim pesan ke Telegram"""
+        if not TELEGRAM_TOKEN or not CHAT_ID:
+            logger.error("Token atau Chat ID tidak ditemukan di Environment Variables!")
+            return
+        
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+        try:
+            response = requests.post(url, json=payload)
+            if response.status_code == 200:
+                logger.info("Pesan berhasil dikirim ke Telegram.")
+            else:
+                logger.error(f"Gagal kirim Telegram: {response.text}")
+        except Exception as e:
+            logger.error(f"Error koneksi Telegram: {e}")
 
     def get_data(self, ticker):
         try:
-            # IDX: harus huruf besar
             df = self.tv.get_hist(symbol=ticker, exchange='IDX', interval=Interval.in_daily, n_bars=100)
             return df
         except:
@@ -29,27 +52,23 @@ class BEIScanner:
 
     def validate_quality(self, df):
         if df is None or df.empty or len(df) < 50:
-            return False, "Data Kosong/Kurang"
+            return False, "Data Kosong"
         
-        # 1. Cek Kesegaran Data (Anti-Suspend/TRIO filter)
         last_date = df.index[-1].date()
         if (datetime.now().date() - last_date).days > MAX_STALE_DAYS:
-            return False, "Data Basi (Suspend)"
+            return False, "Data Basi"
 
-        # 2. Cek Likuiditas (Harga x Volume)
         last_bar = df.iloc[-1]
         daily_value = last_bar['close'] * last_bar['volume']
         if daily_value < MIN_VALUE_PER_DAY:
             return False, "Tidak Likuid"
 
-        # 3. Cek Saham Tidur (Std Deviasi 5 hari terakhir)
         if df['close'].tail(5).std() < 0.0001:
             return False, "Saham Tidur"
 
         return True, "Valid"
 
     def calculate_logic(self, df):
-        # Sederhanakan indikator untuk akurasi
         df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
         df['ema50'] = df['close'].ewm(span=50, adjust=False).mean()
         
@@ -66,17 +85,14 @@ class BEIScanner:
         score = 0
         signals = []
 
-        # Logic 1: Bullish Momentum (EMA Cross atau Price above EMA)
         if last['close'] > last['ema20'] and last['ema20'] > last['ema50']:
             score += 5
             signals.append("Bullish Trend")
         
-        # Logic 2: RSI Recovery
         if last['rsi'] > 50 and prev['rsi'] <= 50:
             score += 3
             signals.append("RSI Break 50")
             
-        # Logic 3: Volume Spike
         vol_avg = df['volume'].rolling(20).mean().iloc[-1]
         if last['volume'] > vol_avg * 1.5:
             score += 4
@@ -86,47 +102,42 @@ class BEIScanner:
 
     def run(self):
         found = []
-        logger.info(f"Memulai scan pada {len(WATCHLIST)} emiten...")
+        logger.info(f"Memulai scan...")
         
         for ticker in WATCHLIST:
             df = self.get_data(ticker)
             is_valid, reason = self.validate_quality(df)
-            
-            if not is_valid:
-                continue
+            if not is_valid: continue
                 
             score, signals = self.calculate_logic(df)
-            
             if score >= 5:
                 found.append({
-                    'ticker': ticker,
-                    'score': score,
-                    'price': df.iloc[-1]['close'],
-                    'signals': signals
+                    'ticker': ticker, 'score': score, 
+                    'price': df.iloc[-1]['close'], 'signals': signals
                 })
         
-        return found
+        # Formatting Message
+        results = sorted(found, key=lambda x: x['score'], reverse=True)
+        now_str = datetime.now().strftime('%d %b %Y %H:%M')
+        msg = f"📊 **SCAN BEI SELESAI**\n📅 {now_str} WIB\n"
+        msg += "━━━━━━━━━━━━━━━━━━━━━━\n"
 
-# --- FORMATTING & EXECUTION ---
+        if not results:
+            msg += "Tidak ada saham memenuhi kriteria kualitas & momentum hari ini.\n"
+        else:
+            for s in results[:10]:
+                sig_text = ", ".join(s['signals'])
+                msg += f"🟢 **{s['ticker']}** | Score: {s['score']}\n"
+                msg += f"💰 Price: Rp{int(s['price'])}\n"
+                msg += f"📝 {sig_text}\n\n"
+
+        msg += "━━━━━━━━━━━━━━━━━━━━━━\n"
+        msg += "⚠️ *Auto-Filter: Likuiditas > 2M & Anti-Stale Data.*"
+        
+        # Kirim ke Telegram
+        self.send_telegram(msg)
+        print(msg)
+
 if __name__ == "__main__":
     scanner = BEIScanner()
-    results = scanner.run()
-    results = sorted(results, key=lambda x: x['score'], reverse=True)
-
-    now_str = datetime.now().strftime('%d %b %Y %H:%M')
-    msg = f"📊 **SCAN BEI SELESAI**\n📅 {now_str} WIB\n"
-    msg += "━━━━━━━━━━━━━━━━━━━━━━\n"
-
-    if not results:
-        msg += "Tidak ada saham memenuhi kriteria kualitas & momentum hari ini.\n"
-    else:
-        for s in results[:10]:
-            sig_text = ", ".join(s['signals'])
-            msg += f"🟢 **{s['ticker']}** | Score: {s['score']}\n"
-            msg += f"💰 Price: Rp{int(s['price'])}\n"
-            msg += f"📝 {sig_text}\n\n"
-
-    msg += "━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += "⚠️ *Auto-Filter: Likuiditas > 2M & Anti-Stale Data Active.*"
-    
-    print(msg)
+    scanner.run()
