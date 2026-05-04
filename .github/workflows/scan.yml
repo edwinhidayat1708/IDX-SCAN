@@ -1,87 +1,30 @@
-# ══════════════════════════════════════════════════════════════════
-# BEI Confluence Pattern Scanner — GitHub Actions Workflow
-# ══════════════════════════════════════════════════════════════════
-#
-# Jadwal: Setiap hari kerja (Senin-Jumat) jam 16:30 dan 17:00 WIB
-# WIB = UTC+7, jadi:
-#   16:30 WIB = 09:30 UTC
-#   17:00 WIB = 10:00 UTC
-#
-# Cara trigger manual: Actions tab → "BEI Scanner" → "Run workflow"
-#
-# Secrets yang harus diset di GitHub repo:
-#   Settings → Secrets and variables → Actions → New repository secret
-#   - TV_USERNAME      : username TradingView kamu
-#   - TV_PASSWORD      : password TradingView kamu
-#   - TELEGRAM_TOKEN   : token bot Telegram (dari @BotFather)
-#   - TELEGRAM_CHAT_ID : chat ID kamu (dari @userinfobot)
-# ══════════════════════════════════════════════════════════════════
-
-name: BEI Scanner
+name: IDX Daily Scanner
 
 on:
+  workflow_dispatch:        # Bisa dijalankan manual
   schedule:
-    # 16:30 WIB = 09:30 UTC (Senin-Jumat)
-    - cron: '30 9 * * 1-5'
-    # 17:00 WIB = 10:00 UTC (Senin-Jumat)
-    - cron: '0 10 * * 1-5'
-
-  # Bisa juga di-trigger manual dari GitHub Actions tab
-  workflow_dispatch:
-    inputs:
-      tier:
-        description: 'Tier watchlist (1=BluChip, 2=MidCap, 3=SmallCap, 0=Semua)'
-        required: false
-        default: '0'
-      universe:
-        description: 'Universe filter (A=Trending, B=Oversold, ALL=Semua)'
-        required: false
-        default: 'ALL'
+    - cron: '15 9 * * 1-5'  # Jalan otomatis jam 16:15 WIB (9:15 UTC) setiap hari bursa
 
 jobs:
-  scan:
-    name: Scan Saham BEI
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45      # max 45 menit (500 saham ~10 menit normal)
-
     steps:
-      # ── 1. Checkout kode ──────────────────────────────────────────
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-      # ── 2. Setup Python ───────────────────────────────────────────
-      - name: 🐍 Setup Python 3.11
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: '3.10'
 
-      # ── 3. Install dependencies ───────────────────────────────────
-      - name: 📦 Install dependencies
+      - name: Install Dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ── 4. Jalankan scanner ───────────────────────────────────────
-      - name: 🔍 Run BEI Pattern Scanner
+      - name: Run Scan Script
         env:
-          TV_USERNAME:      ${{ secrets.TV_USERNAME }}
-          TV_PASSWORD:      ${{ secrets.TV_PASSWORD }}
-          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          # MENGHUBUNGKAN SECRETS KE SCRIPT
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SCAN_TIER:        ${{ github.event.inputs.tier || '0' }}
-          SCAN_UNIVERSE:    ${{ github.event.inputs.universe || 'ALL' }}
-        run: |
-          python scripts/run_scan.py
-
-      # ── 5. Upload log sebagai artifact (untuk debugging) ──────────
-      - name: 📋 Upload scan log
-        if: always()    # upload meskipun scan gagal
-        uses: actions/upload-artifact@v4
-        with:
-          name: scan-log-${{ github.run_number }}
-          path: |
-            *.log
-            scan_results*.csv
-          retention-days: 7
-          if-no-files-found: ignore
+        run: python scripts/run_scan.py
